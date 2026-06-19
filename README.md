@@ -1,39 +1,47 @@
 # Хуки автоматизированного добавления/удаления DNS записи API NIC.RU
 
-Необходимы чтобы использовать их при перевыпуске сертификата certbot с параметрами:
-- manual
+Для получения `wildcard` SSL-сертификата единственный способ подтвердить владение доменом - это [DNS Plugins](https://eff-certbot.readthedocs.io/en/stable/using.html#dns-plugins).
+DNS плагина для https://nic.ru нет, и поэтому написаны эти [manual-hooks](https://eff-certbot.readthedocs.io/en/stable/using.html#manual) для добавления dns записей на nic.ru для проверки LetsEncrypt. 
+
+Необходимы, чтобы использовать их при перевыпуске сертификата certbot с параметрами:
 - preferred-challenges dns
+- manual-auth-hook
+- manual-cleanup-hook
 
-Создает DNS-запись вида:
+
+Auth-hook `auth.sh` создает DNS-запись вида:
+```XML
+<rr id="11111111"><name>_acme-challenge.DOMAIN_WITHOUT_ZONE</name><idn-name>_acme-challenge</idn-name><ttl>300</ttl><type>TXT</type><txt><string>validation_token</string></txt></rr>
 ```
-<rr id="11111111"><name>_acme-challenge</name><idn-name>_acme-challenge</idn-name><ttl>300</ttl><type>TXT</type><txt><string>f8uh32887bf278bfnSDqed1</string></txt></rr>
+
+Также Auth-hook записывает `Record id` этой записи в temp file, чтобы `cleanup.sh` удалил эту запись, после верификации LetsEncrypt.
+
+В последнем обновлении скрипта был изменен механизм хранения большинства переменных в OpenBao (HashiVault).
+
+> [!WARNING]
+> При ручном использовании хуков (без Jenkins), необходимо указать переменные доступа к OpenBao в .env 
+
+> [!IMPORTANT]  
+> При работе с API NIC.ru необходим `Access token`, который действителен 4 часа. Получить его можно по API, использовав `Auth token` - это креды OAuth в формате base64 + `Refresh token`.
+> `Refresh token` обновляется после каждого получения `Access token`, поэтому его необходимо где-то хранить. В данном случае он хранится в OpenBao.
+
+#### Проект содержит модули:
+- log.sh - Логирование. Создает log-file в папке logs/ , с названием хука.
+- squadus.sh - Отправка алерта в Squadsus с произвольным сообщением.
+- openbao.sh - Модуль для работы с openbao. Позволяет получать/перезаписывать данные.
+- renew_token.sh - Получение NIC Access Token и одновременное обновление/запись нового refresh token в OpenBao.
+
+#### Squadus
+В файле .env необходимо указать путь OpenBao до кредов Squadus.
+
+> [!WARNING]
+> Если отправлять необходимости отправлять сообщения в Squadus нет, в скриптах надо удалить вызов функции `squadus_send`.
+
+
+#### Для проверки можно использовать скрипт получения зоны.
+
 ```
-
-#### Для запуска скрипта необходимо:
-
-1. Заполнить данные NIC.RU в .env:
- - SERVICE - это название сервиса на NIC.RU (например MYDNSRECORDS)
- - ZONE - зона, в которую добавлять записи
-
-2. Указать в файле nic_token.secret (права должны быть 600) необходимые токены:
- - NIC_CLIENT_AUTH - главный токен авторизации
- - NIC_REFRESH_TOKEN - токен для получения ACCESS-токена, он всегда находится в файле nic_token.secret и при получении нового ACCESS-токена меняется тоже, оба перезаписываются в файл nic_token.secret
- - NIC_ACCESS_TOKEN - временный токен для операций с зонами, действует 4 часа. В рамках хука auth.sh обновляется вместе с REFRESH-токеном.
-
-3. Поправить путь до LOG_FILE и TOKEN_FILE в файле .env
-
-
-#### Также можно получить записи DNS-зоны, предварительно вручную обновив токены.
-```
-./renew_token.sh
-
-access:
-fiu432h8f6yg327486g9v7263bfy82bf86y723vf632vg0f7632gv0f872h3f-98732h0f86y32bvf76v2307f62v0f
-refresh:
-gj45793gh08734bf87y234b0f7dt1v7d53v16d-032987gh-34897gb340876ybfg013798n=89hg4y289g7h4-2793
-```
-```
-./check_record.sh
+./get_zone.sh
 
 <response>
    <status>success</status>
